@@ -24,15 +24,15 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout private source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: olaf-create/mediaflow-api-explorer
           ref: ${{ github.event.inputs.ref }}
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
 
       - uses: dtolnay/rust-toolchain@stable
         with:
