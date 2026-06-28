@@ -46,6 +46,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # publishes the release into THIS public repo
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing + notarization. Empty until the Apple secrets are
+          # set → the build is simply unsigned (current behaviour). Once all are
+          # present, tauri-action imports the cert and notarizes automatically.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.event.inputs.ref }}
           releaseName: 'Mediaflow API ${{ github.event.inputs.ref }}'
