@@ -38,6 +38,11 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
+      # Match the npm version the lockfile was generated with (Node 22 ships
+      # npm 10, which resolves Storybook's React 18 peer deps differently and
+      # rejects the lock). Same fix as .github/workflows/docs.yml in the source.
+      - run: npm i -g npm@11
+
       - name: Install frontend deps
         run: npm ci
 
