@@ -4,15 +4,35 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Source repo tag/ref to build (e.g. v0.1.1 or main)'
+        # No default on purpose: the release tag below is taken straight from this
+        # input, so dispatching without a value used to build 'main' and publish a
+        # release tagged after the branch. Must be an explicit version tag.
+        description: 'Version tag in the source repo to build — must be vX.Y.Z'
         required: true
-        default: 'main'
 
 permissions:
   contents: write
 
 jobs:
+  # Cheap gate in front of the macOS/Windows matrix: a wrong ref fails in seconds
+  # instead of producing a release named after a branch.
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a version tag
+        # Input goes through the environment, never interpolated into the script —
+        # otherwise the value could break out of the shell command.
+        env:
+          REF: ${{ github.event.inputs.ref }}
+        run: |
+          if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Refusing to build '$REF'. The release is tagged with this exact value, so a branch name would publish a release named after the branch. Pass a version tag such as v0.1.128."
+            exit 1
+          fi
+          echo "Building $REF"
+
   build:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
