@@ -86,3 +86,61 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  # Keep the public release list to just the version that was built. Every ship
+  # otherwise adds ~100 MB of publicly downloadable installers, and the tidy-up
+  # was manual — which meant it did not happen.
+  #
+  # Drafting is reversible: a release set to draft keeps its assets and can be
+  # published again with one click. Auto-update is unaffected, because the updater
+  # always resolves `releases/latest`, never a specific old version.
+  prune:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Draft every older app release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          KEEP: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+
+          # Only tags shaped like vX.Y.Z are touched. That alone excludes the
+          # `licence-blocklist` release, whose asset the app fetches at a fixed
+          # tag — drafting it would make revoked.txt unreachable, and because the
+          # app treats an unreachable list as "no revocations", licence revocation
+          # would silently stop working. The explicit guard below says so twice on
+          # purpose: this is the one release that must never be swept up here.
+          # Plain string plus while-read rather than mapfile: mapfile needs bash 4,
+          # which keeps this step from being testable on a stock macOS shell.
+          stale=$(
+            gh api "repos/$REPO/releases?per_page=100" \
+              --jq '.[] | select(.draft == false) | .tag_name' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -vx "$KEEP" || true
+          )
+
+          if [ -z "$stale" ]; then
+            echo "Nothing to draft — $KEEP is already the only public app release."
+            exit 0
+          fi
+
+          echo "$stale" | while IFS= read -r tag; do
+            if [ "$tag" = "licence-blocklist" ]; then
+              echo "::error::Refusing to draft the blocklist release."
+              exit 1
+            fi
+            id=$(gh api "repos/$REPO/releases/tags/$tag" --jq .id)
+            # -F sends a typed boolean; -f would send the string "true", which the
+            # API accepts and then ignores, leaving the release public.
+            state=$(gh api -X PATCH "repos/$REPO/releases/$id" -F draft=true --jq .draft)
+            if [ "$state" != "true" ]; then
+              echo "::error::$tag is still public after the request."
+              exit 1
+            fi
+            echo "drafted $tag"
+          done
+
+          echo "Public app releases now: $KEEP (plus the blocklist)."
+          gh release list --repo "$REPO" --exclude-drafts
