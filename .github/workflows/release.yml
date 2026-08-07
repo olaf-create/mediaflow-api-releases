@@ -87,6 +87,65 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+  # Guard against a *partial* release. The matrix runs with fail-fast: false so a
+  # platform outage cannot kill the other build — but that also means one job can
+  # publish the release on its own, leaving latest.json without the other
+  # platform's entry. The updater then silently serves nothing to those users
+  # (exactly what happened in v0.1.146, when the Windows runner died during
+  # provisioning and only macOS shipped).
+  #
+  # `if: always()` is the whole point: with a plain `needs: build` this job would
+  # be skipped by the very failure it is meant to report.
+  verify:
+    needs: [validate, build]
+    if: always() && needs.validate.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: latest.json must carry every platform
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          EXPECTED="darwin-aarch64 darwin-aarch64-app windows-x86_64 windows-x86_64-nsis"
+
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::No release was published for $TAG."
+            exit 1
+          fi
+
+          tmp=$(mktemp -d)
+          gh release download "$TAG" --repo "$REPO" --pattern latest.json --dir "$tmp"
+
+          version=$(jq -r '.version' "$tmp/latest.json")
+          want="${TAG#v}"
+          if [ "$version" != "$want" ]; then
+            echo "::error::latest.json reports $version but the tag is $TAG."
+            exit 1
+          fi
+
+          # A platform counts as served only with BOTH a url and a signature —
+          # the updater rejects an unsigned entry, so a half-written one is as
+          # broken as a missing one.
+          missing=""
+          for p in $EXPECTED; do
+            if ! jq -e --arg p "$p" '.platforms[$p].url // empty' "$tmp/latest.json" >/dev/null 2>&1 \
+               || ! jq -e --arg p "$p" '.platforms[$p].signature // empty' "$tmp/latest.json" >/dev/null 2>&1; then
+              missing="$missing $p"
+            fi
+          done
+
+          if [ -n "$missing" ]; then
+            echo "Platforms present in latest.json:"
+            jq -r '.platforms | keys[]' "$tmp/latest.json" | sed 's/^/  - /'
+            echo "::error::latest.json is missing:$missing — the updater would serve nothing to those users. Re-run the failed build job, then re-run this workflow's checks."
+            exit 1
+          fi
+
+          echo "latest.json v$version carries all expected platforms:"
+          jq -r '.platforms | keys[]' "$tmp/latest.json" | sed 's/^/  - /'
+
   # Keep the public release list to just the version that was built. Every ship
   # otherwise adds ~100 MB of publicly downloadable installers, and the tidy-up
   # was manual — which meant it did not happen.
@@ -95,7 +154,9 @@ jobs:
   # published again with one click. Auto-update is unaffected, because the updater
   # always resolves `releases/latest`, never a specific old version.
   prune:
-    needs: build
+    # Only after `verify`: if this release is incomplete, the previous one must
+    # stay public as a working fallback instead of being drafted away.
+    needs: [build, verify]
     runs-on: ubuntu-latest
     steps:
       - name: Draft every older app release
