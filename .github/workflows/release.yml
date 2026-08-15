@@ -7,8 +7,18 @@ on:
         # No default on purpose: the release tag below is taken straight from this
         # input, so dispatching without a value used to build 'main' and publish a
         # release tagged after the branch. Must be an explicit version tag.
-        description: 'Version tag in the source repo to build — must be vX.Y.Z'
+        description: 'Version tag in the source repo to build — must be vX.Y.Z (or vX.Y.Z-suffix with prerelease)'
         required: true
+      prerelease:
+        # Publishes the release as a GitHub pre-release. GitHub's
+        # `releases/latest` excludes pre-releases, so the stable update channel
+        # never sees it; only clients that opted into the pre-release channel
+        # will be offered it. The tag MUST carry a semver suffix (-beta.1), so
+        # that a later stable release of the same version keeps its clean tag
+        # and so that semver ranks the pre-release below it.
+        description: 'Publish as pre-release (tag must be vX.Y.Z-suffix)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,12 +34,23 @@ jobs:
         # otherwise the value could break out of the shell command.
         env:
           REF: ${{ github.event.inputs.ref }}
+          PRE: ${{ inputs.prerelease }}
         run: |
-          if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Refusing to build '$REF'. The release is tagged with this exact value, so a branch name would publish a release named after the branch. Pass a version tag such as v0.1.128."
-            exit 1
+          if [ "$PRE" = "true" ]; then
+            # A pre-release must be tagged with a suffix: semver then ranks it
+            # below the stable version of the same number, and the clean tag
+            # stays free for the eventual stable release.
+            if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+$ ]]; then
+              echo "::error::A pre-release needs a suffixed tag such as v0.1.196-beta.1, got '$REF'."
+              exit 1
+            fi
+          else
+            if [[ ! "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Refusing to build '$REF'. The release is tagged with this exact value, so a branch name would publish a release named after the branch. Pass a version tag such as v0.1.128 (or set prerelease for a suffixed tag)."
+              exit 1
+            fi
           fi
-          echo "Building $REF"
+          echo "Building $REF (prerelease: $PRE)"
 
   build:
     needs: validate
@@ -84,7 +105,7 @@ jobs:
           tagName: ${{ github.event.inputs.ref }}
           releaseName: 'Mediaflow API ${{ github.event.inputs.ref }}'
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ inputs.prerelease }}
           args: ${{ matrix.args }}
 
   # Guard against a *partial* release. The matrix runs with fail-fast: false so a
@@ -164,10 +185,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           KEEP: ${{ github.event.inputs.ref }}
+          PRE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
 
-          # Only tags shaped like vX.Y.Z are touched. That alone excludes the
+          # Only tags shaped like app versions are touched. That alone excludes the
           # `licence-blocklist` release, whose asset the app fetches at a fixed
           # tag — drafting it would make revoked.txt unreachable, and because the
           # app treats an unreachable list as "no revocations", licence revocation
@@ -175,10 +197,19 @@ jobs:
           # purpose: this is the one release that must never be swept up here.
           # Plain string plus while-read rather than mapfile: mapfile needs bash 4,
           # which keeps this step from being testable on a stock macOS shell.
+          # A pre-release run drafts only OTHER pre-releases: the stable
+          # release must stay public, it is the working fallback and the whole
+          # stable channel. A stable run drafts old stables AND every
+          # pre-release — once the stable is out, the previews are history.
+          if [ "$PRE" = "true" ]; then
+            pattern='^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+$'
+          else
+            pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+          fi
           stale=$(
             gh api "repos/$REPO/releases?per_page=100" \
               --jq '.[] | select(.draft == false) | .tag_name' \
-              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -E "$pattern" \
               | grep -vx "$KEEP" || true
           )
 
