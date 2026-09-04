@@ -269,8 +269,18 @@ jobs:
           else
             pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
           fi
+          # `--paginate` is not a nicety, it is the whole job. GitHub returns
+          # DRAFTS FIRST and only then the published releases, newest first —
+          # measured on this repo: the first page of 100 held 99 drafts at
+          # positions 0-98 and exactly one non-draft at position 99, the release
+          # just built. That one is then removed by the `grep -vx "$KEEP"`
+          # below, so `stale` came out empty and the job reported "nothing to
+          # draft" — while 110 releases with their installers stayed publicly
+          # downloadable, which is precisely what this job exists to prevent.
+          # A single page can never be enough: every drafted release pushes the
+          # published ones further back.
           stale=$(
-            gh api "repos/$REPO/releases?per_page=100" \
+            gh api --paginate "repos/$REPO/releases?per_page=100" \
               --jq '.[] | select(.draft == false) | .tag_name' \
               | grep -E "$pattern" \
               | grep -vx "$KEEP" || true
