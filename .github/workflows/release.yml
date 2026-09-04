@@ -108,6 +108,69 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           args: ${{ matrix.args }}
 
+  # The six PDF manuals, attached to the release.
+  #
+  # The manual website links them at
+  # `releases/latest/download/Mediaflow-Handbuch-<lang>.pdf`; without this job
+  # six links in its header point at nothing.
+  #
+  # `needs: build` because that is where the release comes into existence
+  # (tauri-action creates it) — before that there is nothing to attach to. The
+  # other way round this job gates NOTHING: `verify` and `prune` still hang off
+  # the build alone. A failed PDF is a dead link on a website, a failed
+  # installer is a broken release; the two must not hold each other up.
+  #
+  # The script in the source repo DRIVES THE APP instead of rebuilding the PDF:
+  # jsPDF needs `canvas`, and the figures come from Vite's pipeline. It starts
+  # its own dev server, so all this job adds is Playwright.
+  handbuch-pdf:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v5
+        with:
+          repository: olaf-create/mediaflow-api-explorer
+          ref: ${{ github.event.inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # Same npm as the build job: the lockfile was generated with it and npm 10
+      # rejects the lock.
+      - run: npm i -g npm@11
+
+      - name: Install frontend deps
+        run: npm ci
+
+      # `--with-deps` pulls the system libraries a bare runner lacks. Chromium
+      # only: a PDF needs no second engine.
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the six manuals
+        run: npm run gen:handbuch-pdf
+
+      # Through `gh`, like every other step here, rather than one more foreign
+      # action. `--clobber` makes a re-run possible without name collisions.
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          count=$(ls -1 dist-pdf/*.pdf | wc -l | tr -d ' ')
+          if [ "$count" -ne 6 ]; then
+            echo "::error::Expected 6 manuals, found $count in dist-pdf/."
+            exit 1
+          fi
+          gh release upload "$TAG" dist-pdf/*.pdf --repo "$REPO" --clobber
+          echo "Attached $count manuals to $TAG:"
+          ls -lh dist-pdf/*.pdf | awk '{print "  - " $9 "  " $5}'
+
   # Guard against a *partial* release. The matrix runs with fail-fast: false so a
   # platform outage cannot kill the other build — but that also means one job can
   # publish the release on its own, leaving latest.json without the other
