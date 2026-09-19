@@ -252,12 +252,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Only tags shaped like app versions are touched. That alone excludes the
-          # `licence-blocklist` release, whose asset the app fetches at a fixed
-          # tag — drafting it would make revoked.txt unreachable, and because the
-          # app treats an unreachable list as "no revocations", licence revocation
-          # would silently stop working. The explicit guard below says so twice on
-          # purpose: this is the one release that must never be swept up here.
+          # Only tags shaped like app versions are touched. That alone excludes
+          # the releases that live at a FIXED tag because the app fetches their
+          # asset by that exact address:
+          #   * `licence-blocklist` — drafting it would make revoked.txt
+          #     unreachable, and because the app treats an unreachable list as
+          #     "no revocations", licence revocation would silently stop working.
+          #   * `demo-bilder` — the image package of the five integration demos
+          #     (161 images, 177 MB). Drafted, the buttons in those modules would
+          #     answer 404 and the demos could not be prepared at all.
+          # The explicit guard below says so twice on purpose: these are the
+          # releases that must never be swept up here.
           # Plain string plus while-read rather than mapfile: mapfile needs bash 4,
           # which keeps this step from being testable on a stock macOS shell.
           # A pre-release run drafts only OTHER pre-releases: the stable
@@ -292,10 +297,14 @@ jobs:
           fi
 
           echo "$stale" | while IFS= read -r tag; do
-            if [ "$tag" = "licence-blocklist" ]; then
-              echo "::error::Refusing to draft the blocklist release."
-              exit 1
-            fi
+            # A pattern is a line of code someone may widen one day; this is the
+            # second lock, and it fails the job rather than the release.
+            case "$tag" in
+              licence-blocklist|demo-bilder)
+                echo "::error::Refusing to draft $tag — the app fetches its asset at this fixed tag."
+                exit 1
+                ;;
+            esac
             id=$(gh api "repos/$REPO/releases/tags/$tag" --jq .id)
             # -F sends a typed boolean; -f would send the string "true", which the
             # API accepts and then ignores, leaving the release public.
