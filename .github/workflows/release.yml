@@ -261,6 +261,10 @@ jobs:
           #   * `demo-bilder` — the image package of the five integration demos
           #     (161 images, 177 MB). Drafted, the buttons in those modules would
           #     answer 404 and the demos could not be prepared at all.
+          #   * `ki-modelle` — the model weights of the AI-Tagging module
+          #     (DINOv2-small, 88 MB). Drafted, the module could not load a
+          #     model at all, and its first step would fail on every machine
+          #     that has not already cached the file.
           # The explicit guard below says so twice on purpose: these are the
           # releases that must never be swept up here.
           # Plain string plus while-read rather than mapfile: mapfile needs bash 4,
@@ -300,7 +304,7 @@ jobs:
             # A pattern is a line of code someone may widen one day; this is the
             # second lock, and it fails the job rather than the release.
             case "$tag" in
-              licence-blocklist|demo-bilder)
+              licence-blocklist|demo-bilder|ki-modelle)
                 echo "::error::Refusing to draft $tag — the app fetches its asset at this fixed tag."
                 exit 1
                 ;;
@@ -316,5 +320,5 @@ jobs:
             echo "drafted $tag"
           done
 
-          echo "Public app releases now: $KEEP (plus the blocklist)."
+          echo "Public app releases now: $KEEP (plus the fixed-tag assets: licence-blocklist, demo-bilder, ki-modelle)."
           gh release list --repo "$REPO" --exclude-drafts
