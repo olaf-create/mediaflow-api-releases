@@ -103,7 +103,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.event.inputs.ref }}
-          releaseName: 'Mediaflow API ${{ github.event.inputs.ref }}'
+          releaseName: 'Mediaflow Companion ${{ github.event.inputs.ref }}'
           releaseDraft: false
           prerelease: ${{ inputs.prerelease }}
           args: ${{ matrix.args }}
@@ -111,7 +111,7 @@ jobs:
   # The six PDF manuals, attached to the release.
   #
   # The manual website links them at
-  # `releases/latest/download/Mediaflow-Handbuch-<lang>.pdf`; without this job
+  # `releases/latest/download/Mediaflow-Companion-Manual-<lang>.pdf`; without this job
   # six links in its header point at nothing.
   #
   # `needs: build` because that is where the release comes into existence
@@ -170,6 +170,45 @@ jobs:
           gh release upload "$TAG" dist-pdf/*.pdf --repo "$REPO" --clobber
           echo "Attached $count manuals to $TAG:"
           ls -lh dist-pdf/*.pdf | awk '{print "  - " $9 "  " $5}'
+
+  # The installers under FIXED names, attached to the same release.
+  #
+  # The manual website links "Download for macOS / Windows" at
+  # `releases/latest/download/Mediaflow-Companion-macOS.dmg` (and `-Windows.exe`).
+  # tauri-action names its files with the version inside
+  # (`Mediaflow.Companion_0.1.284_aarch64.dmg`), so without these copies the
+  # links would need a new address on every release — and a website that is
+  # built from `main` cannot know when the release behind it is finished.
+  #
+  # After `verify`, so a half-built release never gets download links; skipped
+  # for pre-releases, which `releases/latest` never resolves to anyway.
+  download-namen:
+    needs: [build, verify]
+    if: ${{ !inputs.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attach installers under fixed names
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.ref }}
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          gh release download "$TAG" --repo "$REPO" --pattern '*_aarch64.dmg' --dir "$tmp"
+          gh release download "$TAG" --repo "$REPO" --pattern '*_x64-setup.exe' --dir "$tmp"
+          dmg=$(ls "$tmp"/*_aarch64.dmg | head -1)
+          exe=$(ls "$tmp"/*_x64-setup.exe | head -1)
+          if [ -z "$dmg" ] || [ -z "$exe" ]; then
+            echo "::error::Expected one .dmg and one -setup.exe in $TAG."
+            exit 1
+          fi
+          cp "$dmg" "$tmp/Mediaflow-Companion-macOS.dmg"
+          cp "$exe" "$tmp/Mediaflow-Companion-Windows.exe"
+          gh release upload "$TAG" "$tmp/Mediaflow-Companion-macOS.dmg" "$tmp/Mediaflow-Companion-Windows.exe" --repo "$REPO" --clobber
+          echo "Attached under fixed names:"
+          echo "  - Mediaflow-Companion-macOS.dmg   ← $(basename "$dmg")"
+          echo "  - Mediaflow-Companion-Windows.exe ← $(basename "$exe")"
 
   # Guard against a *partial* release. The matrix runs with fail-fast: false so a
   # platform outage cannot kill the other build — but that also means one job can
