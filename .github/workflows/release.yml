@@ -108,11 +108,12 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           args: ${{ matrix.args }}
 
-  # The six PDF manuals, attached to the release.
+  # The seven PDF manuals (de, en, it, fi, no, sv, nl — Dutch since v0.1.293),
+  # attached to the release.
   #
   # The manual website links them at
   # `releases/latest/download/Mediaflow-Companion-Manual-<lang>.pdf`; without this job
-  # six links in its header point at nothing.
+  # seven links in its header point at nothing.
   #
   # `needs: build` because that is where the release comes into existence
   # (tauri-action creates it) — before that there is nothing to attach to. The
@@ -150,7 +151,7 @@ jobs:
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
 
-      - name: Build the six manuals
+      - name: Build the seven manuals
         run: npm run gen:handbuch-pdf
 
       # Through `gh`, like every other step here, rather than one more foreign
@@ -163,8 +164,8 @@ jobs:
         run: |
           set -euo pipefail
           count=$(ls -1 dist-pdf/*.pdf | wc -l | tr -d ' ')
-          if [ "$count" -ne 6 ]; then
-            echo "::error::Expected 6 manuals, found $count in dist-pdf/."
+          if [ "$count" -ne 7 ]; then
+            echo "::error::Expected 7 manuals, found $count in dist-pdf/."
             exit 1
           fi
           gh release upload "$TAG" dist-pdf/*.pdf --repo "$REPO" --clobber
