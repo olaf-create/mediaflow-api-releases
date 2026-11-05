@@ -87,6 +87,18 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
+      # FFmpeg-Beigabe des Video-Editors (ADR-0024 im Quell-Repo): die App trägt
+      # sie als `externalBin`, ohne die Datei baut der Rust-Kern nicht. Das
+      # Skript holt den Build Hash-genau aus dem Release im (privaten)
+      # Quell-Repo. Nur für Stände, die es schon kennen (ab v0.1.333) — ältere
+      # Tags bauen wie bisher.
+      - name: FFmpeg-Beigabe holen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+        run: |
+          if [ -f scripts/ffmpeg.json ]; then npm run ffmpeg:holen; else echo "kein scripts/ffmpeg.json — Stand vor dem Video-Editor"; fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # publishes the release into THIS public repo
