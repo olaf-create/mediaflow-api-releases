@@ -99,6 +99,28 @@ jobs:
         run: |
           if [ -f scripts/ffmpeg.json ]; then npm run ffmpeg:holen; else echo "kein scripts/ffmpeg.json — Stand vor dem Video-Editor"; fi
 
+      # NSIS für den Windows-Installer vorab bereitlegen. Der Bundler lädt es
+      # sonst selbst von github.com/tauri-apps/…/releases/download — und genau
+      # diese Adressen antworteten am 08.11.2026 zweimal hintereinander `504`,
+      # sodass v0.1.339 ohne Windows-Installer blieb. Adressen und Prüfsummen
+      # liest das Skript aus der installierten Tauri-CLI; scheitert es, warnt es
+      # nur, und der Bundler versucht es wie bisher selbst. Liegt in DIESEM
+      # Repo (nicht im Quell-Repo), weil der Checkout oben das Quell-Repo ist —
+      # deshalb der zweite Checkout unter `.release`.
+      - name: Release-Werkzeuge auschecken
+        if: matrix.platform == 'windows-latest'
+        uses: actions/checkout@v5
+        with:
+          path: .release
+          sparse-checkout: .github/scripts
+
+      - name: NSIS vorab bereitlegen
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.release/.github/scripts/nsis-vorab.ps1
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # publishes the release into THIS public repo
